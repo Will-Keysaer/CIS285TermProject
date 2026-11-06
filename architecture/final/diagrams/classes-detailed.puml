@@ -1,0 +1,200 @@
+@startuml classes-detailed
+' SplitSmart - Detailed class diagram: domain overview (reconciled candidate)
+' Sources: design.md sections 1.1, 2, 3, 5, 6, 7; data-model.md section 1.
+' Application services, ports, and repositories: classes-application.puml.
+title SplitSmart - Domain Classes (overview; see classes-application.puml for services/ports)
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide empty members
+
+package "splitsmart.domain.money" {
+  class CurrencyCode <<record>> {
+    +code : String
+    +scale() : int
+  }
+  class Money <<value>> {
+    -amount : BigDecimal
+    -currency : CurrencyCode
+    +plus(Money) : Money
+    +minus(Money) : Money
+    +compareTo(Money) : int
+    +toMinorUnits() : long
+    +{static} fromMinorUnits(long, CurrencyCode) : Money
+  }
+  class Percentage <<value>> {
+    -basisPoints : int
+    +{static} parse(String) : Percentage
+  }
+  class CurrencyPolicy <<utility>> {
+    +{static} scaleOf(CurrencyCode) : int
+    +{static} isSupported(CurrencyCode) : boolean
+  }
+}
+
+package "splitsmart.domain.allocation" {
+  enum SplitMethod {
+    EQUAL
+    PERCENTAGE
+  }
+  class ParticipantWeight <<record>> {
+    +accountId : AccountId
+    +percentage : Percentage [0..1]
+  }
+  class ParticipantShare <<record>> {
+    +accountId : AccountId
+    +percentage : Percentage [0..1]
+    +share : Money
+  }
+  class Allocation <<value>> {
+    +shares() : List<ParticipantShare>
+    +total() : Money
+  }
+  class AllocationCalculator <<service>> {
+    +allocate(Money, SplitMethod, List<ParticipantWeight>) : Allocation
+  }
+}
+
+package "splitsmart.domain.expense" {
+  enum ExpenseStatus {
+    PENDING
+    APPROVED
+    REJECTED
+  }
+  class Expense <<aggregate root>> {
+    -id : ExpenseId
+    -groupId : GroupId
+    -submittedBy : AccountId
+    -payerId : AccountId
+    -amount : Money
+    -expenseDate : LocalDate
+    -description : String
+    -splitMethod : SplitMethod
+    -status : ExpenseStatus
+    -version : long
+    +{static} submit(ExpenseId, GroupContext, AccountId, ExpenseDraft, Allocation, Instant) : Expense
+    +edit(AccountId, long, ExpenseDraft, Allocation, Instant)
+    +approve(AccountId, long, String, Instant) : ReviewDecision
+    +reject(AccountId, long, String, Instant) : ReviewDecision
+    +involves(AccountId) : boolean
+  }
+  class ExpenseValidator <<service>> {
+    +validate(ExpenseDraft, GroupContext, LocalDate) : ValidationResult
+  }
+}
+
+package "splitsmart.domain.review" {
+  class ReviewPolicy <<service>> {
+    +check(AccountId, Expense, GroupContext) : Decision
+    +isReviewBlocked(Expense, GroupContext) : boolean
+  }
+  class ReviewDecision <<entity>> {
+    +expenseId : ExpenseId
+    +reviewerId : AccountId
+    +decision : ExpenseStatus
+    +reason : String [0..1]
+    +decidedAt : Instant
+    +level : int = 1
+  }
+}
+
+package "splitsmart.domain.group" {
+  class Group <<entity>> {
+    +id : GroupId
+    +name : String
+    +currency : CurrencyCode
+    +createdBy : AccountId
+    +selfApprovalAllowed : boolean
+    +version : long
+  }
+  class Membership <<entity>> {
+    +role : GroupRole
+    +status : MembershipStatus
+    +activate(GroupRole, Instant)
+    +end(MembershipStatus, AccountId, Instant)
+  }
+  class Invitation <<entity>> {
+    +id : InvitationId
+    +inviteeEmail : String
+    +inviteeAccountId : AccountId [0..1]
+    +status : InvitationStatus
+    +expiresAt : Instant
+    +effectiveStatus(Instant) : InvitationStatus
+    +accept(AccountId, Instant)
+    +decline(AccountId, Instant)
+    +revoke(boolean, Instant)
+  }
+  class GroupContext <<record>> {
+    +groupId : GroupId
+    +currency : CurrencyCode
+    +selfApprovalAllowed : boolean
+    +activeMemberIds : Set<AccountId>
+    +managerIds : Set<AccountId>
+    +creatorId : AccountId
+  }
+  class GroupMembershipRules <<service>> {
+    +requireCanManage(Membership)
+    +requireCanDemote(Membership, GroupContext)
+    +requireCanEnd(Membership, GroupContext, boolean, boolean)
+  }
+}
+
+package "splitsmart.domain.balance" {
+  class DirectedSums <<value>> {
+    +debt(AccountId, AccountId) : Money
+    +paid(AccountId, AccountId) : Money
+  }
+  class PairBalance <<record>> {
+    +debtor : AccountId
+    +creditor : AccountId
+    +amount : Money
+  }
+  class PairwiseBalanceCalculator <<service>> {
+    +net(DirectedSums, AccountId, AccountId) : PairNet
+    +all(DirectedSums, Set<AccountId>) : GroupBalances
+  }
+}
+
+package "splitsmart.domain.payment" {
+  class PaymentRules <<service>> {
+    +validateFields(PaymentDraft, GroupContext, AccountId, LocalDate) : ValidationResult
+    +checkAgainstOutstanding(Money, Money)
+  }
+  class Payment <<entity, immutable>> {
+    +id : PaymentId
+    +senderId : AccountId
+    +recipientId : AccountId
+    +amount : Money
+    +paymentDate : LocalDate
+    +recordedBy : AccountId
+    +recordedAt : Instant
+  }
+}
+
+Money --> CurrencyCode
+Money ..> CurrencyPolicy
+ParticipantShare --> Money
+Allocation "1" *-- "1..*" ParticipantShare
+AllocationCalculator ..> Allocation : creates
+AllocationCalculator ..> ParticipantWeight
+ParticipantWeight --> Percentage
+Expense "1" *-- "1" Allocation
+Expense --> ExpenseStatus
+Expense --> SplitMethod
+Expense ..> ReviewDecision : creates
+ReviewPolicy ..> Expense
+ReviewPolicy ..> GroupContext
+ExpenseValidator ..> GroupContext
+Group "1" o-- "*" Membership
+Group "1" o-- "*" Invitation
+GroupMembershipRules ..> Membership
+PairwiseBalanceCalculator ..> DirectedSums
+PairwiseBalanceCalculator ..> PairBalance : creates
+PaymentRules ..> Payment
+Payment --> Money
+
+note bottom of AllocationCalculator
+  Integer minor units x basis points; largest remainder;
+  ties -> lowest accountId string; assert sum == amount.
+end note
+@enduml

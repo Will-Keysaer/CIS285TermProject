@@ -1,0 +1,22 @@
+@startuml states-payment
+' SplitSmart - Payment lifecycle (reconciled candidate)
+' Sources: data-model.md section 6.5; design.md section 7. Payments are immutable once recorded.
+title SplitSmart - Payment Lifecycle
+
+hide empty description
+skinparam shadowing false
+
+[*] --> Requested : sender submits\n(Idempotency-Key)
+Requested --> RECORDED : [actor = sender; members; 0 < amount <= owed;\nnot an unconfirmed possible duplicate]\n/ insert; recordedBy, recordedAt; audit
+Requested --> Refused : [validation or rule fails]\n/ error code; nothing stored
+Requested --> RECORDED : [same key + same hash]\n/ return the original payment (no new row)
+Refused --> [*]
+
+state Requested : transient (inside one request/transaction)
+state Refused : NOT_FOUND, PAYMENT_NOT_SENDER, PAYMENT_SELF,\nRECIPIENT_NOT_MEMBER, VALIDATION_FAILED, NOTHING_OWED,\nPAYMENT_EXCEEDS_OUTSTANDING, POSSIBLE_DUPLICATE_PAYMENT,\nIDEMPOTENCY_KEY_REUSED
+state RECORDED : immutable; counted in balances immediately
+state RECORDED : identifiable as a settlement (NFR-005)
+state RECORDED : edit / delete / void => not supported (OQ-6)
+
+RECORDED --> [*]
+@enduml

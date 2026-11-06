@@ -1,0 +1,47 @@
+@startuml components-swing-conditional
+' SplitSmart - Conditional Swing alternative [COND-B]
+' Valid ONLY with documented customer approval (OQ-1). Does NOT satisfy NFR-001 / AC-020.
+' Sources: architecture.md section 3.2; contracts/ui-workflows.md section 6; decisions.md D-02.
+title SplitSmart - Components (Alternative B: Swing desktop) [CONDITIONAL - NFR-001 NOT met]
+
+skinparam shadowing false
+skinparam componentStyle uml2
+
+actor "Account holders\n(same computer)" as Users
+
+rectangle "Single desktop installation" {
+  package "splitsmart.desktop [COND-B]" {
+    [Swing views (EDT only)] as Views
+    [Presenters (no javax.swing)] as Pres
+    [SessionHolder] as Sess
+    [DesktopApplication\n(composition root)] as Root
+  }
+  package "splitsmart.application (same as A)" {
+    [Application services +\nAuthorizationService + AuditRecorder] as Svc
+  }
+  package "splitsmart.domain (same as A)" {
+    [Domain rules] as Dom
+  }
+  package "splitsmart.persistence (same as A)" {
+    [JPA repositories + Flyway] as Repo
+  }
+  database "Embedded H2 file\n(user profile dir)" as H2
+}
+
+Users --> Views
+Views --> Pres : events
+Pres --> Views : view-models
+Pres --> Svc : SwingWorker calls
+Pres --> Sess
+Svc --> Dom
+Svc --> Repo : via ports
+Repo --> H2
+Root ..> Pres : wires
+Root ..> Svc : wires
+
+note bottom of H2
+  Recovery uses one-time codes (no email).
+  Notifications are visible only on this machine.
+  File readable by OS users unless encrypted.
+end note
+@enduml

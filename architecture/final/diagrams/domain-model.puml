@@ -1,0 +1,152 @@
+@startuml domain-model
+' SplitSmart - Domain / ER-style model (reconciled candidate)
+' Source of truth: data-model.md sections 1-2, 5. Money columns are NUMERIC(19,4) holding BigDecimal at currency scale.
+title SplitSmart - Domain / Entity Model
+
+hide circle
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+
+entity Account {
+  * id : UUID <<PK>>
+  --
+  email : VARCHAR <<unique>>
+  display_name
+  password_hash
+  password_changed_at
+}
+entity Group as "Group (app_group)" {
+  * id : UUID <<PK>>
+  --
+  name
+  currency_code <<immutable after 1st expense>>
+  created_by : FK Account
+  self_approval_allowed
+  version
+}
+entity Membership {
+  * group_id + account_id <<unique>>
+  --
+  role : MANAGER | MEMBER
+  status : ACTIVE | REMOVED | LEFT
+  joined_at / ended_at / ended_by
+}
+entity Invitation {
+  * id : UUID <<PK>>
+  --
+  invitee_email
+  invitee_account_id : FK [0..1]
+  invited_by : FK Account
+  status : PENDING | ACCEPTED | DECLINED | REVOKED | EXPIRED
+  expires_at
+  version
+}
+entity Expense {
+  * id : UUID <<PK>>
+  --
+  submitted_by : FK Account
+  payer_id : FK Account
+  amount
+  currency_code
+  expense_date
+  description
+  split_method : EQUAL | PERCENTAGE
+  status : PENDING | APPROVED | REJECTED
+  idempotency_key / idempotency_request_hash
+  version
+}
+entity ExpenseParticipant as "ExpenseParticipant (allocation)" {
+  * expense_id + account_id <<PK>>
+  --
+  percentage [0..1]
+  share_amount
+}
+entity ReviewDecision {
+  * id : UUID <<PK>>
+  --
+  reviewer_id : FK Account
+  decision : APPROVED | REJECTED
+  reason [0..1]
+  decided_at
+  level = 1
+}
+entity ReceiptAttachment as "ReceiptAttachment (Release 2)" {
+  * expense_id <<PK, FK>>
+  --
+  storage_key
+  content_type
+  size_bytes
+}
+entity Payment as "Payment (immutable)" {
+  * id : UUID <<PK>>
+  --
+  sender_id : FK Account
+  recipient_id : FK Account
+  amount
+  payment_date
+  recorded_by : FK Account (= sender)
+  recorded_at
+  idempotency_key / idempotency_request_hash
+}
+entity Notification {
+  * id : UUID <<PK>>
+  --
+  recipient_id : FK Account
+  type
+  summary
+  read_at [0..1]
+}
+entity AuditEvent as "AuditEvent (append-only)" {
+  * id : UUID <<PK>>
+  --
+  actor_id : FK Account
+  event_type
+  subject_type / subject_id
+  details (JSON)
+  occurred_at
+}
+entity PasswordResetToken as "PasswordResetToken [COND-A]" {
+  token_hash
+  expires_at
+  used_at [0..1]
+}
+class PairwiseBalance <<derived, NOT stored>> {
+  debtor, creditor, amount
+}
+
+Account ||--o{ Membership
+Group ||--o{ Membership
+Group ||--o{ Invitation
+Invitation }o--o| Account : invitee
+Group ||--o{ Expense
+Expense }o--|| Account : payer (member;\nselected separately)
+Expense }o--|| Account : submitted_by
+Expense ||--|{ ExpenseParticipant
+ExpenseParticipant }o--|| Account : participant
+Expense ||--o| ReviewDecision
+Expense ||--o| ReceiptAttachment
+Group ||--o{ Payment
+Payment }o--|| Account : sender
+Payment }o--|| Account : recipient
+Account ||--o{ Notification
+Group ||--o{ AuditEvent
+Account ||--o{ PasswordResetToken
+
+PairwiseBalance ..> ExpenseParticipant : sum of shares of\nAPPROVED expenses only
+PairwiseBalance ..> Payment : net of payments
+
+note right of ExpenseParticipant
+  I-1: sum(share_amount) = Expense.amount
+  I-7: payer may or may not be a participant;
+       payer's own share creates no debt
+end note
+note bottom of Payment
+  I-13: 0 < amount <= amount sender owes recipient
+  (checked under the group lock)
+end note
+note right of Invitation
+  Invitation is separate from Membership:
+  membership becomes ACTIVE only on accept
+  by the intended invitee (F-03).
+end note
+@enduml

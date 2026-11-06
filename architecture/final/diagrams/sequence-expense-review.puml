@@ -1,0 +1,85 @@
+@startuml sequence-expense-review
+' SplitSmart - Expense submission and review (reconciled candidate)
+' Sources: design.md sections 3, 4, 5, 8.2, 11, 15.1-15.2; contracts/web-api.md section 3.3; contracts/application-services.md sections 4, 8.
+title SplitSmart - Submit, Allocate, Notify, Review (web path; core identical for Swing)
+
+skinparam shadowing false
+autonumber
+
+actor "Submitter\n(group member)" as Sub
+actor "Reviewer\n(manager)" as Rev
+participant "Browser client" as UI
+participant "ExpenseController /\nReviewController" as Ctrl
+participant "ExpenseService" as ExpS
+participant "ReviewService" as RevS
+participant "AuthorizationService" as AuthZ
+participant "ExpenseValidator" as Val
+participant "AllocationCalculator" as Alloc
+participant "ReviewPolicy" as Pol
+participant "NotificationComposer" as Not
+participant "AuditRecorder" as Aud
+database "PostgreSQL" as DB
+
+== Submission (one transaction) ==
+Sub -> UI : fill form (amount, date, description,\npayer, participants, split method[, %])
+UI -> Ctrl : POST /api/v1/groups/{g}/expenses\nIdempotency-Key, X-XSRF-TOKEN
+Ctrl -> ExpS : submitExpense(actor, cmd)
+ExpS -> DB : IdempotencyGuard lookup (group, actor, key)
+alt key seen with same request hash
+  ExpS --> Ctrl : original ExpenseView (no new row)
+else key seen with different hash
+  ExpS --> Ctrl : 409 IDEMPOTENCY_KEY_REUSED
+end
+ExpS -> AuthZ : requireActiveMember(actor, g)
+alt not an active member
+  AuthZ --> Ctrl : 404 NOT_FOUND
+end
+ExpS -> Val : validate(draft, groupContext, today)
+alt any field invalid
+  Val --> Ctrl : 400 VALIDATION_FAILED\n[all field codes, e.g. PERCENTAGES_NOT_100]
+  Ctrl --> UI : field errors (nothing saved)
+end
+ExpS -> Alloc : allocate(amount, EQUAL|PERCENTAGE, weights)
+Alloc --> ExpS : shares (sum == amount asserted)
+ExpS -> DB : INSERT expense (PENDING) + expense_participant rows
+ExpS -> Not : submitted(expense, ctx)
+Not -> DB : INSERT notification for each OTHER active member\n("... pending review")
+ExpS -> Aud : record(EXPENSE_SUBMITTED)
+Aud -> DB : INSERT audit_event
+ExpS --> Ctrl : ExpenseView(PENDING, shares, reviewBlocked)
+Ctrl --> UI : 201 Created
+UI --> Sub : "Pending review - balances not changed"
+
+== Review (one transaction) ==
+Rev -> UI : open expense detail (version v)
+UI -> Ctrl : POST /expenses/{id}/approval {version: v}\n(or /rejection {version, reason})
+Ctrl -> RevS : approveExpense(actor, id, v)
+RevS -> DB : load expense
+alt not visible to actor
+  RevS --> Ctrl : 404 NOT_FOUND
+end
+RevS -> DB : SELECT ... FROM app_group WHERE id=? FOR UPDATE\n(group lock first)
+RevS -> Pol : check(actor, expense, ctx)
+alt not a manager
+  Pol --> Ctrl : 403 FORBIDDEN_ROLE
+else own expense and self-approval off
+  Pol --> Ctrl : 403 SELF_APPROVAL_NOT_ALLOWED
+end
+RevS -> DB : UPDATE expense SET status=APPROVED, version=v+1\nWHERE id=? AND status='PENDING' AND version=v
+alt 0 rows: already decided
+  RevS --> Ctrl : 409 EXPENSE_NOT_PENDING
+else 0 rows: edited since v
+  RevS --> Ctrl : 409 CONCURRENT_MODIFICATION
+end
+RevS -> DB : INSERT review_decision (level 1)
+RevS -> Not : reviewed(expense, decision)
+Not -> DB : INSERT notifications (submitter, payer, participants; not reviewer)
+RevS -> Aud : record(EXPENSE_APPROVED | EXPENSE_REJECTED)
+RevS --> Ctrl : ExpenseView(APPROVED | REJECTED)
+Ctrl --> UI : 200 OK
+
+note over DB
+  Balances are derived on read from APPROVED shares and payments:
+  APPROVED -> included from the next read; REJECTED or PENDING -> never included.
+end note
+@enduml

@@ -1,0 +1,48 @@
+@startuml states-invitation
+' SplitSmart - Invitation and membership lifecycles (reconciled candidate; F-03)
+' Sources: data-model.md sections 6.2-6.3; design.md sections 5.3-5.5, 15.6-15.7.
+title SplitSmart - Invitation and Membership States
+
+hide empty description
+skinparam shadowing false
+
+state "Invitation" as INV {
+  state "PENDING" as I_PENDING
+  state "ACCEPTED" as I_ACCEPTED
+  state "DECLINED" as I_DECLINED
+  state "REVOKED" as I_REVOKED
+  state "EXPIRED" as I_EXPIRED
+  [*] --> I_PENDING : invite\n[actor is ACTIVE MANAGER;\nno pending invite for email;\nemail not an active member]
+  I_PENDING --> I_ACCEPTED : accept\n[actor = invitee; now < expires_at;\nversion matches]
+  I_PENDING --> I_DECLINED : decline\n[actor = invitee]
+  I_PENDING --> I_REVOKED : revoke\n[actor is manager]
+  I_PENDING --> I_EXPIRED : read after expires_at\n(lazy, 14 days)
+  I_ACCEPTED --> [*]
+  I_DECLINED --> [*]
+  I_REVOKED --> [*]
+  I_EXPIRED --> [*]
+  I_ACCEPTED : terminal; a second accept => INVITATION_NOT_PENDING
+  I_PENDING : accept/decline by anyone else => NOT_FOUND
+}
+
+state "Membership" as MEM {
+  state "ACTIVE / MEMBER" as M_ACTIVE_MEMBER
+  state "ACTIVE / MANAGER" as M_ACTIVE_MANAGER
+  state "REMOVED" as M_REMOVED
+  state "LEFT" as M_LEFT
+  [*] --> M_ACTIVE_MEMBER : invitation accepted
+  M_ACTIVE_MEMBER --> M_ACTIVE_MANAGER : designate manager\n[actor is manager]
+  M_ACTIVE_MANAGER --> M_ACTIVE_MEMBER : revoke manager\n[not creator; >= 1 manager remains]
+  M_ACTIVE_MEMBER --> M_REMOVED : remove\n[actor is manager; balance = 0;\nno pending involvement]
+  M_ACTIVE_MANAGER --> M_REMOVED : remove\n[not creator; >= 1 manager remains;\nbalance = 0; no pending involvement]
+  M_ACTIVE_MEMBER --> M_LEFT : leave\n[balance = 0; no pending involvement]
+  M_ACTIVE_MANAGER --> M_LEFT : leave\n[not creator; >= 1 manager remains;\nbalance = 0; no pending involvement]
+  M_REMOVED --> M_ACTIVE_MEMBER : new invitation accepted
+  M_LEFT --> M_ACTIVE_MEMBER : new invitation accepted
+  M_REMOVED : history keeps account IDs (AC-004)
+  M_REMOVED : read-only access to own party records
+  M_ACTIVE_MANAGER : creator is always ACTIVE MANAGER
+}
+
+I_ACCEPTED -right-> MEM : creates/reactivates membership
+@enduml

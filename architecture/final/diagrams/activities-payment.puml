@@ -1,0 +1,61 @@
+@startuml activities-payment
+' SplitSmart - Payment settlement activity (reconciled candidate)
+' Sources: design.md section 7; contracts/ui-workflows.md U13-U14.
+title SplitSmart - Payment Settlement
+
+skinparam shadowing false
+
+|Sender|
+start
+:Open group balances;
+:Choose a row where I owe someone;
+:Confirm recipient, amount (pre-filled\nwith the amount owed), date, note;
+:Submit (Idempotency-Key);
+|System|
+if (Key already used?) then (same request)
+  :Return original payment;
+  stop
+elseif (different request) then
+  :409 IDEMPOTENCY_KEY_REUSED;
+  stop
+else (new)
+endif
+:Lock group row;
+if (Active member and actor = sender?) then (no)
+  :404 NOT_FOUND / 403 PAYMENT_NOT_SENDER;
+  stop
+endif
+if (Fields valid?\n(recipient member, not self,\namount > 0, precision, date)) then (no)
+  :Field / rule errors;
+  stop
+endif
+:Compute amount owed N\n(APPROVED shares and payments);
+if (N <= 0?) then (yes)
+  :422 NOTHING_OWED;
+  stop
+elseif (amount > N?) then (yes)
+  :422 PAYMENT_EXCEEDS_OUTSTANDING\n(show N);
+  |Sender|
+  :Adjust amount;
+  stop
+else (no)
+endif
+|System|
+if (Similar payment in last 24 h\nand not confirmed?) then (yes)
+  :409 POSSIBLE_DUPLICATE_PAYMENT;
+  |Sender|
+  if (Confirm?) then (yes)
+    :Resubmit with confirmPossibleDuplicate\n(same key);
+    detach
+  else (no)
+    stop
+  endif
+endif
+|System|
+:Insert immutable payment\n(recordedBy, recordedAt);
+:Audit PAYMENT_RECORDED;
+:Return payment + new balance (N - amount);
+|Sender|
+:See updated balance immediately;
+stop
+@enduml

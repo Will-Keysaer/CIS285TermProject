@@ -1,0 +1,31 @@
+@startuml states
+' SplitSmart - Expense lifecycle (reconciled candidate)
+' Sources: data-model.md section 6.1; design.md sections 5.1-5.2, 8.2. Invitation: states-invitation.puml. Payment: states-payment.puml.
+title SplitSmart - Expense State Machine (invalid transitions explicit)
+
+hide empty description
+skinparam shadowing false
+
+[*] --> PENDING : submit\n[active member; all validation passes]\n/ store shares; notify other active members; audit
+
+PENDING --> PENDING : edit\n[actor = submitter; version matches; valid]\n/ recompute shares; version+1; audit before/after
+PENDING --> APPROVED : approve\n[ReviewPolicy allows; version matches]\n/ ReviewDecision(level 1); notify parties; audit
+PENDING --> REJECTED : reject\n[ReviewPolicy allows; version matches]\n/ ReviewDecision + reason; notify parties; audit
+
+state PENDING : visible as "Pending review"
+state PENDING : excluded from balances (FR-006, AC-010)
+state APPROVED : included in balances (AC-011)
+state APPROVED : immutable
+state REJECTED : never in balances (AC-012)
+state REJECTED : immutable; reason visible
+
+state "Rejected requests (no state change)" as Invalid #EEEEEE
+Invalid : APPROVED/REJECTED -> any transition => EXPENSE_NOT_PENDING (409)
+Invalid : stale version => CONCURRENT_MODIFICATION (409)
+Invalid : edit by non-submitter => FORBIDDEN_ROLE (403)
+Invalid : decide own expense w/o self-approval => SELF_APPROVAL_NOT_ALLOWED (403)
+Invalid : no DRAFT state; no DELETED state (OQ-6)
+
+APPROVED --> [*]
+REJECTED --> [*]
+@enduml

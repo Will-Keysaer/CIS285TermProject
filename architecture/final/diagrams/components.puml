@@ -1,0 +1,126 @@
+@startuml components
+' SplitSmart - Component diagram, recommended web path [COND-A]
+' Sources: architecture.md sections 2, 4, 6; design.md section 1. The Swing alternative is in components-swing-conditional.puml.
+title SplitSmart - Components and Trust Boundaries (Alternative A: Web, recommended)
+
+skinparam shadowing false
+skinparam componentStyle uml2
+
+actor "Account holder" as User
+
+rectangle "User device (untrusted)" {
+  [Browser client\n(static HTML/CSS/JS, D-06)] as Client
+}
+
+rectangle "Application host (trusted)" {
+  package "splitsmart.web [COND-A]" {
+    [REST controllers /api/v1] as Ctrl
+    [Security filter chain\n(session, CSRF, rate limit,\nSessionValidityFilter)] as Sec
+    [ProblemDetailsAdvice] as Err
+    [EmailRecoveryChannel] as Mail
+    [FileSystemReceiptStorage] as RcptAdapter
+  }
+
+  package "splitsmart.application (shared)" {
+    [AccountService] as AccS
+    [GroupService] as GrpS
+    [ExpenseService] as ExpS
+    [ReviewService] as RevS
+    [BalanceService] as BalS
+    [PaymentService] as PayS
+    [NotificationService] as NotS
+    [ReportService] as RepS
+    [AuthorizationService] as AuthZ
+    [AuditRecorder] as Audit
+    [IdempotencyGuard] as Idem
+  }
+
+  package "splitsmart.domain (shared, JDK only)" {
+    [Money / MoneyParser rules] as Money
+    [AllocationCalculator] as Alloc
+    [Expense aggregate] as Exp
+    [ReviewPolicy] as Pol
+    [PairwiseBalanceCalculator] as BalC
+    [PaymentRules] as PayR
+    [GroupMembershipRules] as MemR
+  }
+
+  package "splitsmart.persistence (shared)" {
+    [JPA repositories] as Repo
+    [JdbcBalanceQuery /\nJdbcReportQuery] as Agg
+    [Flyway migrations] as Fly
+  }
+
+  interface "Repository ports" as IRepo
+  interface "BalanceQueryPort /\nReportQueryPort" as IAgg
+  interface "RecoveryChannel" as IRec
+  interface "ReceiptStorage" as IRcpt
+}
+
+database "PostgreSQL" as DB
+folder "Private receipt volume" as Vol
+cloud "SMTP relay (external)" as SMTP
+
+User --> Client
+Client --> Sec : HTTPS JSON\n(cookie + X-XSRF-TOKEN)
+Sec --> Ctrl
+Ctrl ..> Err
+Ctrl --> AccS
+Ctrl --> GrpS
+Ctrl --> ExpS
+Ctrl --> RevS
+Ctrl --> BalS
+Ctrl --> PayS
+Ctrl --> NotS
+Ctrl --> RepS
+
+ExpS --> AuthZ
+RevS --> AuthZ
+PayS --> AuthZ
+GrpS --> AuthZ
+BalS --> AuthZ
+RepS --> AuthZ
+ExpS --> Audit
+RevS --> Audit
+PayS --> Audit
+GrpS --> Audit
+ExpS --> Idem
+PayS --> Idem
+
+ExpS --> Alloc
+ExpS --> Exp
+RevS --> Pol
+RevS --> Exp
+BalS --> BalC
+PayS --> PayR
+PayS --> BalC
+GrpS --> MemR
+Alloc --> Money
+
+ExpS --> IRepo
+RevS --> IRepo
+PayS --> IRepo
+GrpS --> IRepo
+AccS --> IRepo
+BalS --> IAgg
+RepS --> IAgg
+PayS --> IAgg
+AccS --> IRec
+ExpS --> IRcpt
+
+Repo -up- IRepo
+Agg -up- IAgg
+Mail -up- IRec
+RcptAdapter -up- IRcpt
+
+Repo --> DB
+Agg --> DB
+Fly --> DB
+RcptAdapter --> Vol
+Mail --> SMTP
+
+note bottom of Sec
+  Trust boundary: ActorContext comes only from the session.
+  Non-visible resource -> 404; missing role -> 403.
+end note
+@enduml

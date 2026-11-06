@@ -1,0 +1,64 @@
+@startuml activities
+' SplitSmart - Expense submission and review activity (reconciled candidate)
+' Sources: design.md sections 4, 5, 8.2, 15.1-15.2; contracts/ui-workflows.md U10-U12.
+title SplitSmart - Expense Submission and Review
+
+skinparam shadowing false
+
+|Submitter|
+start
+:Open "New expense" in a group;
+:Enter amount, date, description,\npayer, participants, split method;
+if (PERCENTAGE?) then (yes)
+  :Enter a percentage per participant;
+endif
+:Server preview of shares (optional);
+:Submit (Idempotency-Key);
+|System|
+if (Active member of group?) then (no)
+  :404 NOT_FOUND;
+  stop
+endif
+if (All fields valid?) then (no)
+  :400 VALIDATION_FAILED\nwith every field error;
+  |Submitter|
+  :Correct input;
+  stop
+endif
+|System|
+:Allocate by largest remainder\n(sum of shares == amount);
+:Save expense as PENDING + shares;
+:Notify other active members;
+:Audit EXPENSE_SUBMITTED;
+note right: Balances unchanged
+if (Submitter is the only manager\nand self-approval is off?) then (yes)
+  :Flag reviewBlocked;\nshow guidance;
+endif
+|Reviewer|
+:Open pending expense (version v);
+:Choose Approve or Reject;
+|System|
+:Lock group row;
+if (ReviewPolicy allows?) then (no)
+  :403 FORBIDDEN_ROLE /\nSELF_APPROVAL_NOT_ALLOWED;
+  stop
+endif
+if (Still PENDING with version v?) then (no)
+  :409 EXPENSE_NOT_PENDING /\nCONCURRENT_MODIFICATION;
+  |Reviewer|
+  :Reload and review again;
+  stop
+endif
+|System|
+if (Decision?) then (approve)
+  :status = APPROVED;
+  :Included in balances from next read;
+else (reject)
+  :status = REJECTED + reason;
+  :Never included in balances;
+endif
+:Record ReviewDecision;
+:Notify submitter, payer, participants;
+:Audit decision;
+stop
+@enduml

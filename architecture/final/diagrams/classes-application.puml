@@ -1,0 +1,141 @@
+@startuml classes-application
+' SplitSmart - Application services, ports, and repositories (reconciled candidate)
+' Sources: design.md section 1.2; contracts/application-services.md. Domain classes: classes-detailed.puml.
+title SplitSmart - Application Services and Ports
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide empty members
+
+package "splitsmart.application" {
+  class ActorContext <<record>> {
+    +accountId : AccountId
+  }
+  class AccountService {
+    +register(email, displayName, password) : AccountView
+    +authenticate(email, password) : AccountView
+    +requestPasswordReset(email)
+    +completePasswordReset(token, newPassword)
+    +changePassword(ActorContext, current, new)
+  }
+  class GroupService {
+    +createGroup(ActorContext, CreateGroupCommand) : GroupView
+    +inviteMember(ActorContext, GroupId, email) : InvitationAck
+    +respondToInvitation(ActorContext, InvitationId, boolean) : MembershipView
+    +setManager(ActorContext, GroupId, AccountId, boolean) : MembershipView
+    +removeMember(ActorContext, GroupId, AccountId)
+    +leaveGroup(ActorContext, GroupId)
+    +listHistory(ActorContext, GroupId, ...) : Page<AuditEventView>
+  }
+  class ExpenseService {
+    +previewAllocation(ActorContext, ...) : AllocationPreview
+    +submitExpense(ActorContext, SubmitExpenseCommand) : ExpenseView
+    +editPendingExpense(ActorContext, ExpenseId, long, ...) : ExpenseView
+    +attachReceipt(ActorContext, ExpenseId, bytes, ...) : ReceiptView
+  }
+  class ReviewService {
+    +approveExpense(ActorContext, ExpenseId, long) : ExpenseView
+    +rejectExpense(ActorContext, ExpenseId, long, reason) : ExpenseView
+    +listPendingReviewsForMe(ActorContext) : List<ExpenseSummary>
+  }
+  class BalanceService {
+    +getGroupBalances(ActorContext, GroupId) : GroupBalances
+    +getMyBalances(ActorContext) : MyBalances
+  }
+  class PaymentService {
+    +recordPayment(ActorContext, RecordPaymentCommand) : PaymentView
+    +listPayments(ActorContext, GroupId, ...) : Page<PaymentView>
+  }
+  class NotificationService {
+    +listMyNotifications(ActorContext, ...) : Page<NotificationView>
+    +markRead(ActorContext, Set<UUID>)
+  }
+  class ReportService {
+    +getSummary(ActorContext, GroupId) : Summary
+    +runReport(ActorContext, ReportQuery) : ReportResult
+  }
+  class AuthorizationService {
+    +requireActiveMember(AccountId, GroupId) : Membership
+    +requireManager(AccountId, GroupId) : Membership
+    +requireExpenseVisible(AccountId, Expense)
+    +requirePaymentVisible(AccountId, Payment)
+    +scopeFor(AccountId, GroupId) : ReportScope
+  }
+  class AuditRecorder {
+    +record(eventType, ActorContext, subject, details)
+  }
+  class IdempotencyGuard {
+    +check(kind, GroupId, AccountId, UUID, hash) : Optional<StoredResult>
+  }
+  class NotificationComposer {
+    +submitted(Expense, GroupContext) : List<Notification>
+    +reviewed(Expense, ReviewDecision) : List<Notification>
+  }
+
+  interface GroupRepository {
+    +findById(GroupId)
+    +lockForUpdate(GroupId) : Group
+  }
+  interface ExpenseRepository {
+    +insert(Expense)
+    +updateIfPending(Expense, long) : int
+    +hasPendingInvolving(GroupId, AccountId) : boolean
+  }
+  interface PaymentRepository {
+    +insert(Payment)
+    +existsSimilarSince(...) : boolean
+  }
+  interface BalanceQueryPort {
+    +directedSums(GroupId) : DirectedSums
+    +directedSumsForPair(GroupId, AccountId, AccountId) : DirectedSums
+  }
+  interface AuditRepository {
+    +append(AuditEvent)
+  }
+  interface TransactionRunner {
+    +inTransaction(Supplier) : T
+  }
+  interface RecoveryChannel
+  interface ReceiptStorage
+}
+
+package "splitsmart.persistence" {
+  class JpaGroupRepository
+  class JpaExpenseRepository
+  class JpaPaymentRepository
+  class JdbcBalanceQuery
+  class JpaAuditRepository
+}
+
+ExpenseService --> AuthorizationService
+ExpenseService --> ExpenseRepository
+ExpenseService --> IdempotencyGuard
+ExpenseService --> AuditRecorder
+ExpenseService --> NotificationComposer
+ExpenseService --> ReceiptStorage
+ReviewService --> AuthorizationService
+ReviewService --> GroupRepository : lockForUpdate
+ReviewService --> ExpenseRepository : updateIfPending
+ReviewService --> AuditRecorder
+ReviewService --> NotificationComposer
+PaymentService --> AuthorizationService
+PaymentService --> GroupRepository : lockForUpdate
+PaymentService --> BalanceQueryPort
+PaymentService --> PaymentRepository
+PaymentService --> IdempotencyGuard
+PaymentService --> AuditRecorder
+BalanceService --> BalanceQueryPort
+GroupService --> GroupRepository
+GroupService --> AuditRecorder
+AccountService --> RecoveryChannel
+AuditRecorder --> AuditRepository
+ExpenseService ..> TransactionRunner
+ReviewService ..> TransactionRunner
+PaymentService ..> TransactionRunner
+
+JpaGroupRepository ..|> GroupRepository
+JpaExpenseRepository ..|> ExpenseRepository
+JpaPaymentRepository ..|> PaymentRepository
+JdbcBalanceQuery ..|> BalanceQueryPort
+JpaAuditRepository ..|> AuditRepository
+@enduml

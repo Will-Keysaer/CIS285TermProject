@@ -1,0 +1,69 @@
+@startuml sequence-payment
+' SplitSmart - Sender-recorded payment (reconciled candidate)
+' Sources: design.md sections 6, 7, 8.1, 8.4, 8.5; contracts/web-api.md section 3.4; contracts/application-services.md section 5.
+title SplitSmart - Record Payment (overpayment rejected, idempotent, immediate derived balance)
+
+skinparam shadowing false
+autonumber
+
+actor "Payment sender" as Snd
+participant "Browser client" as UI
+participant "PaymentController" as Ctrl
+participant "PaymentService" as PayS
+participant "IdempotencyGuard" as Idem
+participant "AuthorizationService" as AuthZ
+participant "PaymentRules" as Rules
+participant "PairwiseBalanceCalculator" as Bal
+participant "AuditRecorder" as Aud
+database "PostgreSQL" as DB
+
+Snd -> UI : Record payment (recipient, amount, date, note)
+UI -> Ctrl : POST /api/v1/groups/{g}/payments\nIdempotency-Key, X-XSRF-TOKEN
+Ctrl -> PayS : recordPayment(actor, cmd)
+PayS -> Idem : check(PAYMENT, g, actor, key, hash)
+alt same key + same hash
+  Idem --> Ctrl : 201 original PaymentView (no new row)
+else same key + different hash
+  Idem --> Ctrl : 409 IDEMPOTENCY_KEY_REUSED
+end
+
+group one transaction
+  PayS -> DB : SELECT ... FROM app_group WHERE id=g FOR UPDATE\n(serializes payments, approvals, removals; timeout 5 s)
+  PayS -> AuthZ : requireActiveMember(actor, g)
+  alt not a member
+    AuthZ --> Ctrl : 404 NOT_FOUND
+  end
+  alt actor != senderId
+    PayS --> Ctrl : 403 PAYMENT_NOT_SENDER
+  end
+  PayS -> Rules : validateFields(draft, ctx, actor, today)
+  alt invalid (self-payment, recipient not member,\namount <= 0, excess precision, future date)
+    Rules --> Ctrl : 422 PAYMENT_SELF / RECIPIENT_NOT_MEMBER\nor 400 VALIDATION_FAILED
+  end
+  PayS -> DB : directedSumsForPair(g, sender, recipient)\n(APPROVED shares + payments, both directions)
+  PayS -> Bal : net(sums, sender, recipient)
+  Bal --> PayS : N = amount sender owes recipient
+  alt N <= 0
+    PayS --> Ctrl : 422 NOTHING_OWED
+  else amount > N
+    PayS --> Ctrl : 422 PAYMENT_EXCEEDS_OUTSTANDING {outstanding: N}
+  else similar payment in last 24 h and not confirmed
+    PayS --> Ctrl : 409 POSSIBLE_DUPLICATE_PAYMENT
+  else valid
+    PayS -> DB : INSERT payment (recorded_by = actor,\nrecorded_at = server clock, idempotency key + hash)
+    alt unique-key violation (concurrent identical retry)
+      PayS -> Idem : roll back and replay lookup -> original result
+    end
+    PayS -> Aud : record(PAYMENT_RECORDED)
+    Aud -> DB : INSERT audit_event
+    PayS --> Ctrl : PaymentView + balance (N - amount)
+  end
+end
+Ctrl --> UI : 201 Created
+UI --> Snd : "Recorded - balance updated"
+
+note over Bal, DB
+  The balance is derived from stored rows, so the next read reflects the payment immediately (AC-016).
+  A payment never reverses a balance's direction (AC-015, I-13).
+end note
+@enduml

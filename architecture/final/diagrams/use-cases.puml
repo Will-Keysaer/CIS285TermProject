@@ -1,0 +1,86 @@
+@startuml use-cases
+' SplitSmart - Use cases and actor privileges (reconciled candidate)
+' Sources: requirements.md section 1 (actors), design.md section 9.2 (authorization matrix), contracts/ui-workflows.md section 3.
+title SplitSmart - Use Cases (web baseline; privileges per design.md 9.2)
+
+left to right direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+actor "Guest" as Guest
+actor "Account holder" as Holder
+actor "Invited user" as Invitee
+actor "Group member" as Member
+actor "Group manager\n(default reviewer, OQ-2)" as Manager
+actor "SMTP relay\n(external)" as Smtp
+
+Invitee -|> Holder
+Member -|> Holder
+Manager -|> Member
+
+rectangle "SplitSmart" {
+  usecase "Register" as UC_Reg
+  usecase "Sign in" as UC_Login
+  usecase "Recover account\n(reset link)" as UC_Recover
+  usecase "View own profile,\nnotifications, invitations" as UC_Own
+  usecase "Create group" as UC_CreateGroup
+  usecase "Accept / decline\nown invitation" as UC_Accept
+  usecase "Invite member" as UC_Invite
+  usecase "Change role /\nremove member" as UC_Manage
+  usecase "Update group settings" as UC_Settings
+  usecase "Leave group" as UC_Leave
+  usecase "Submit expense\n(equal / percentage)" as UC_Submit
+  usecase "Preview allocation" as UC_Preview
+  usecase "Attach receipt\n(Release 2)" as UC_Receipt
+  usecase "Edit own pending expense" as UC_Edit
+  usecase "Approve / reject expense" as UC_Review
+  usecase "View balances" as UC_Bal
+  usecase "Record payment\n(as sender only)" as UC_Pay
+  usecase "View summary" as UC_Summary
+  usecase "Run date-range report\n(Release 2)" as UC_Report
+  usecase "View group history" as UC_History
+  usecase "Notify other members" as UC_Notify
+}
+
+Guest --> UC_Reg
+Guest --> UC_Login
+Guest --> UC_Recover
+UC_Recover --> Smtp
+
+Holder --> UC_Own
+Holder --> UC_CreateGroup
+Holder --> UC_Summary
+Holder --> UC_Report
+Invitee --> UC_Accept
+
+Member --> UC_Submit
+Member --> UC_Bal
+Member --> UC_Pay
+Member --> UC_History
+Member --> UC_Leave
+Member --> UC_Edit
+
+Manager --> UC_Invite
+Manager --> UC_Manage
+Manager --> UC_Settings
+Manager --> UC_Review
+
+UC_Submit ..> UC_Preview : <<include>>
+UC_Submit ..> UC_Notify : <<include>>
+UC_Receipt ..> UC_Submit : <<extend>>
+
+note right of UC_Review
+  Not on own expense unless the group
+  enables self-approval (OQ-2 default).
+end note
+
+note right of UC_Edit
+  Submitter only, PENDING only.
+end note
+
+note bottom of UC_Pay
+  Actor must be the sender.
+  Amount must not exceed the amount
+  owed (OQ-7).
+end note
+@enduml
