@@ -97,36 +97,44 @@ Create the following files under `architecture/claude-code/`:
    - Risks, trade-offs, assumptions, and open decisions.
    - Constitution compliance assessment.
 
-2. `research.md`
+2. `design.md`
+   - Required comprehensive, implementation-oriented detailed design, distinct from the high-level `architecture.md`.
+   - Describe component and class responsibilities, interfaces and method-level contracts where useful, domain services, validation rules, error handling, and dependencies.
+   - Walk through expense submission, approval/rejection, split calculation, balance updates, payment recording, invitations, and reporting with concrete interaction sequences and state transitions.
+   - Explain `BigDecimal` calculations, cent allocation and deterministic tie-breaking, persistence/transaction boundaries, concurrency, authorization, and test scenarios.
+   - Clearly label platform-specific designs as conditional while the web-versus-Swing decision remains unresolved.
+   - Cross-reference the data model, contracts, and diagrams; do not duplicate `architecture.md` verbatim.
+
+3. `research.md`
    - Technical decisions and rationale.
    - Alternatives considered.
    - Evidence/sources for any external research actually performed.
    - Unknowns and decisions requiring customer input.
    - Do not fabricate citations, benchmarks, or research.
 
-3. `data-model.md`
+4. `data-model.md`
    - Domain entities, attributes, identifiers, relationships, constraints, and lifecycle/state transitions.
    - Include Account, Group, Membership/Invitation, Expense, ExpenseParticipant/Allocation, ReviewDecision, Notification, Balance or balance derivation, Payment, and Report as appropriate.
    - Explain whether balances are derived, materialized, or both and why.
    - State invariants for money, expense approval, payer/participant roles, and payment reconciliation.
 
-4. `contracts/`
+5. `contracts/`
    - Define the appropriate interface contracts for the platform alternatives (for example, REST/API contracts for a web architecture and UI/application-service contracts for a Swing alternative).
    - Include request/response or input/output structures, validation, authorization, errors, and relevant state behavior.
    - If a contract is conditional on the platform decision, label it clearly.
 
-5. `quickstart.md`
+6. `quickstart.md`
    - Prerequisites, setup, build/run/test commands, and end-to-end validation scenarios.
    - Do not claim commands have been tested unless you actually run them successfully.
    - If implementation does not yet exist, clearly distinguish proposed commands from verified commands.
 
-6. PlantUML source files under `diagrams/` when useful:
+7. PlantUML source files under `diagrams/` when useful:
    - System/context or component architecture.
    - Domain/entity relationships.
    - Sequence diagrams for expense submission/approval and payment recording.
    - Keep diagrams consistent with the written artifacts.
 
-7. `traceability.md`
+8. `traceability.md`
    - Map FR-001–FR-012 and NFR-001–NFR-005 to the architecture components/design decisions and proposed verification.
    - Include AC-001–AC-023 where useful.
    - Explicitly identify any requirement not addressed by the candidate MVP and explain why it remains in the full customer scope.
@@ -141,6 +149,7 @@ DESIGN EXPECTATIONS
 - Address authorization at both user/group boundaries and relevant operations.
 - Include testable acceptance/verification scenarios.
 - Avoid overengineering and avoid designing features not supported by the requirements.
+- Ensure `design.md` is a substantive detailed design, not just a renamed architecture summary.
 - Ensure all documents agree with one another.
 
 VALIDATION AND SAFETY
