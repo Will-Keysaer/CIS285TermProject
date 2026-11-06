@@ -71,7 +71,8 @@ WORKFLOW
 2. Read the entire clarified specification and constitution before making architecture decisions.
 3. Identify unknowns, dependencies, integrations, and assumptions. Research relevant technical choices where the workflow supports it. Do not fabricate research or claim a source was consulted if it was not.
 4. For unresolved customer questions, preserve them as explicit decisions or `NEEDS CLARIFICATION`; do not invent answers.
-5. Generate the artifacts required by the installed planning workflow. At minimum, the expected design package should include:
+5. Generate the artifacts required by the installed planning workflow. In addition to the standard Spec Kit outputs, create a **standalone `architecture.md`** in the same feature-planning directory as `plan.md` (normally `specs/001-splitsmart-expense-sharing/`). This is an explicit project deliverable; do not assume that architecture decisions scattered across `plan.md` and other files are an adequate substitute. Do not replace or rename any standard Spec Kit artifact. At minimum, the expected design package should include:
+   - `architecture.md` (**required standalone architecture proposal**): a cohesive, developer-facing description of the proposed system architecture. Include the platform alternatives and unresolved customer decision; system context and major components; layer/component responsibilities and dependencies; important runtime interactions and data flows; technology choices with rationale and alternatives; security, authorization, privacy, and persistence boundaries; deployment/runtime model where known; key architectural decisions, trade-offs, risks, and open questions. Clearly distinguish confirmed constraints, recommendations, conditional choices, and decisions requiring customer approval. Keep it consistent with `plan.md`, `research.md`, contracts, and diagrams.
    - `plan.md` (technical context, architecture approach, constitution checks, key decisions, and implementation plan)
    - `research.md` (decisions, rationale, alternatives, and sources where research was performed)
    - `data-model.md` (entities, fields, relationships, constraints, validation, and important state transitions)
@@ -86,6 +87,7 @@ WORKFLOW
 
 QUALITY EXPECTATIONS
 - Be specific enough that a developer could use the artifacts to implement the design.
+- Make `architecture.md` a readable standalone architecture proposal, not merely a summary or copy of `plan.md`; a reviewer should be able to understand and evaluate the proposed architecture from it.
 - Explain responsibilities and boundaries for the major components/layers.
 - Define domain concepts and invariants, especially expense allocation, approvals, balances, and payments.
 - Describe data ownership, authorization, and privacy boundaries.
