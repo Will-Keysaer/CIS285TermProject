@@ -1,0 +1,50 @@
+@startuml component-swing
+' SplitSmart - Component architecture, Alternative B (Swing desktop MVP)
+' CONDITIONAL-B: valid only with documented customer approval. Does NOT satisfy NFR-001.
+' Source of truth: architecture.md sections 2.3, 3, 7.2; contracts/swing-ui.md.
+title SplitSmart - Components (Alternative B: Swing desktop) [CONDITIONAL - requires customer approval; NFR-001 NOT met]
+
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+package "splitsmart-desktop (B only)" as Desk {
+  [Swing Views\n(EDT only)] as Views
+  [Presenters\n(no javax.swing imports)] as Pres
+  [SessionHolder] as Sess
+  [RecoveryCodeChannel] as Codes
+  [DesktopApplication\n(composition root)] as Root
+}
+
+package "splitsmart-application (shared - identical to Alternative A)" as App {
+  [Application services\n(Account, Group, Expense, Review,\nBalance, Payment, Notification, Report,\nAuthorization)] as Svc
+  interface "Ports" as Ports
+}
+
+package "splitsmart-domain (shared - identical to Alternative A)" as Dom {
+  [Money, AllocationCalculator, Expense,\nReviewPolicy, PairwiseBalanceCalculator,\nPaymentRules, GroupMembershipRules] as Core
+}
+
+package "splitsmart-persistence (shared)" as Per {
+  [JPA entities + repositories\n+ Flyway migrations] as Jpa
+}
+
+database "Embedded H2 file <<proposal>>\n(local user profile directory)" as H2
+
+Views --> Pres : user events
+Pres --> Views : view-models
+Pres --> Svc : commands via SwingWorker
+Pres --> Sess : ActorContext
+Svc --> Core
+Svc ..> Ports
+Jpa ..|> Ports
+Codes ..|> Ports
+Jpa --> H2
+Root ..> Views : builds
+Root ..> Svc : wires
+
+note bottom of H2
+  Single machine, single installation.
+  All group members must sign in on this computer.
+  File readable by OS users unless encrypted.
+end note
+@enduml

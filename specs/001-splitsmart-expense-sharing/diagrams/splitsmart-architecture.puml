@@ -1,0 +1,39 @@
+@startuml SplitSmartArchitecture
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+left to right direction
+
+actor User
+rectangle "Web Browser" as Browser
+rectangle "Web UI Layer" as UI
+rectangle "Application Services" as Services
+rectangle "Domain Model" as Domain
+rectangle "Persistence Layer" as Persistence
+rectangle "Relational Database" as DB
+rectangle "Security / Authorization" as Security
+rectangle "Notification Service" as Notifications
+
+User --> Browser
+Browser --> UI
+UI --> Services
+Services --> Security
+Services --> Domain
+Services --> Persistence
+Persistence --> DB
+Services --> Notifications
+
+note right of Domain
+  Account
+  Group / Membership
+  Expense / Allocation
+  ReviewDecision
+  Payment
+  BalanceView
+end note
+
+note bottom of Security
+  Enforces private account visibility,
+  group membership rules, and manager permissions.
+end note
+
+@enduml

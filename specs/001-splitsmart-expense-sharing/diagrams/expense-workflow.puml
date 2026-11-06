@@ -1,0 +1,22 @@
+@startuml ExpenseWorkflow
+skinparam activityBackgroundColor white
+skinparam activityBorderColor black
+start
+
+:User submits expense;
+:Validate amount, payer, participants, allocation;
+if (Valid?) then (yes)
+  :Expense enters pending review;
+  :Notify group members;
+  if (Approver approves?) then (yes)
+    :Approved expense added to balances;
+    :Update pairwise balances;
+  else (no)
+    :Rejected expense retained with outcome;
+    :No balance change;
+  endif
+else (no)
+  :Reject submission with validation error;
+endif
+stop
+@enduml

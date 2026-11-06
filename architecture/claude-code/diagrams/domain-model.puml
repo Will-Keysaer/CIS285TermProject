@@ -1,0 +1,133 @@
+@startuml domain-model
+' SplitSmart - Domain / entity relationships (shared by Alternatives A and B)
+' Source of truth: data-model.md sections 1-2. Money attributes are BigDecimal / NUMERIC(19,4).
+title SplitSmart - Domain Model
+
+hide circle
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+
+class Account {
+  id : UUID
+  email : String <<unique>>
+  displayName : String
+  passwordHash : String
+  passwordChangedAt : Instant
+}
+
+class Group {
+  id : UUID
+  name : String
+  currencyCode : String <<immutable after 1st expense>>
+  createdBy : Account
+  selfApprovalAllowed : boolean
+  version : long
+}
+
+class Membership {
+  role : MANAGER | MEMBER
+  status : ACTIVE | REMOVED | LEFT
+  joinedAt : Instant
+  endedAt : Instant [0..1]
+}
+
+class Invitation {
+  inviteeEmail : String
+  status : PENDING | ACCEPTED | DECLINED | REVOKED | EXPIRED
+  expiresAt : Instant
+}
+
+class Expense {
+  id : UUID
+  amount : BigDecimal
+  currencyCode : String
+  expenseDate : LocalDate
+  description : String
+  splitMethod : EQUAL | PERCENTAGE
+  status : PENDING | APPROVED | REJECTED
+  submittedAt : Instant
+  version : long
+}
+
+class ExpenseParticipant <<allocation>> {
+  percentage : BigDecimal [0..1]
+  shareAmount : BigDecimal
+}
+
+class ReviewDecision {
+  decision : APPROVED | REJECTED
+  reason : String [0..1]
+  decidedAt : Instant
+  level : int = 1
+}
+
+class ReceiptAttachment <<A, full scope>> {
+  storageKey : String
+  contentType : image/jpeg | image/png
+  sizeBytes : int
+}
+
+class Payment {
+  id : UUID
+  amount : BigDecimal
+  currencyCode : String
+  paymentDate : LocalDate
+  recordedAt : Instant
+  note : String [0..1]
+}
+
+class Notification {
+  type : EXPENSE_SUBMITTED | EXPENSE_REVIEWED | INVITATION_RECEIVED
+  summary : String
+  createdAt : Instant
+  readAt : Instant [0..1]
+}
+
+class PasswordResetToken <<A>> {
+  tokenHash : String
+  expiresAt : Instant
+  usedAt : Instant [0..1]
+}
+
+class RecoveryCode <<B, conditional>> {
+  codeHash : String
+  usedAt : Instant [0..1]
+}
+
+class PairwiseBalance <<derived read model, not stored>> {
+  debtor : Account
+  creditor : Account
+  amount : BigDecimal
+}
+
+Account "1" -- "*" Membership
+Group "1" -- "*" Membership
+Group "1" -- "*" Invitation
+Invitation "*" --> "1" Account : invitedBy
+Invitation "*" --> "0..1" Account : invitee
+
+Group "1" -- "*" Expense
+Expense "*" --> "1" Account : submittedBy
+Expense "*" --> "1" Account : payer\n(group member;\nselected separately)
+Expense "1" *-- "1..*" ExpenseParticipant
+ExpenseParticipant "*" --> "1" Account : participant
+Expense "1" -- "0..1" ReviewDecision
+ReviewDecision "*" --> "1" Account : reviewer
+Expense "1" -- "0..1" ReceiptAttachment
+
+Group "1" -- "*" Payment
+Payment "*" --> "1" Account : sender (= recordedBy)
+Payment "*" --> "1" Account : recipient
+
+Account "1" -- "*" Notification : recipient
+Account "1" -- "*" PasswordResetToken
+Account "1" -- "*" RecoveryCode
+
+PairwiseBalance ..> ExpenseParticipant : derived from\nAPPROVED allocations
+PairwiseBalance ..> Payment : minus / plus payments
+
+note bottom of ExpenseParticipant
+  Invariant I-1: sum(shareAmount) = Expense.amount exactly.
+  Payer may or may not be a participant (FR-003).
+end note
+@enduml

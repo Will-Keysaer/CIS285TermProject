@@ -1,0 +1,35 @@
+@startuml context-web
+' SplitSmart - System context and runtime containers, Alternative A (web, recommended)
+' Source of truth: architecture.md sections 2.2, 3.4, 7.1. Technologies marked <<proposal>> are not customer requirements.
+title SplitSmart - Context & Containers (Alternative A: Web)
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+actor "Account holder\n(member / manager / approver)" as User
+
+node "User device" {
+  component "Web browser\n(SPA client)" as Browser
+}
+
+node "Application host <<proposal>>" {
+  component "splitsmart-web\nSpring Boot JAR (Java 21)\nREST API /api/v1 + static SPA assets" as App
+}
+
+database "PostgreSQL <<proposal>>\naccounts, groups, expenses,\nallocations, decisions, payments,\nnotifications" as DB
+folder "Receipt storage <<proposal>>\n(private volume or object store)" as Files
+cloud "SMTP relay <<proposal>>\n(password-reset email only)" as SMTP
+
+User --> Browser : uses
+Browser --> App : HTTPS JSON\n(session cookie + CSRF token)
+App --> DB : JDBC / JPA\n(transactions, row locks)
+App --> Files : read/write receipt images
+App --> SMTP : send reset links
+SMTP ..> User : email
+
+note right of App
+  In-app notifications are stored in the DB;
+  the browser polls /me/notifications/unread-count.
+  Other channels: Open Question 3.
+end note
+@enduml

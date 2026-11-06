@@ -1,0 +1,90 @@
+@startuml component-web
+' SplitSmart - Component architecture, Alternative A (web, recommended)
+' Source of truth: architecture.md section 3. Shared core is identical to component-swing.puml.
+title SplitSmart - Components (Alternative A: Web)
+
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+package "splitsmart-web (A only)" as Web {
+  [REST controllers\n(/api/v1)] as Ctrl
+  [Security config\n(session, CSRF, rate limit)] as Sec
+  [Problem-details\nerror mapper] as Err
+  [SMTP RecoveryChannel] as Mail
+  [FileSystemReceiptStorage] as Rcpt
+  [SPA static assets] as Spa
+}
+
+package "splitsmart-application (shared)" as App {
+  [AccountService] as AccS
+  [GroupService] as GrpS
+  [ExpenseService] as ExpS
+  [ReviewService] as RevS
+  [BalanceService] as BalS
+  [PaymentService] as PayS
+  [NotificationService] as NotS
+  [ReportService] as RepS
+  [AuthorizationService] as AuthZ
+  interface "Ports:\nRepositories, Clock, PasswordHasher,\nRecoveryChannel, ReceiptStorage,\nNotificationPublisher, TransactionRunner" as Ports
+}
+
+package "splitsmart-domain (shared, pure Java)" as Dom {
+  [Money / CurrencyPolicy / Percentage] as Money
+  [AllocationCalculator\n(largest remainder)] as Alloc
+  [Expense aggregate\n(state machine)] as Exp
+  [ReviewPolicy] as RevP
+  [PairwiseBalanceCalculator] as BalC
+  [PaymentRules] as PayR
+  [GroupMembershipRules] as MemR
+}
+
+package "splitsmart-persistence (shared)" as Per {
+  [JPA entities + repositories] as Jpa
+  [Flyway migrations] as Fly
+  [Balance aggregate query] as BalQ
+}
+
+database "PostgreSQL <<proposal>>" as PG
+
+Ctrl --> AccS
+Ctrl --> GrpS
+Ctrl --> ExpS
+Ctrl --> RevS
+Ctrl --> BalS
+Ctrl --> PayS
+Ctrl --> NotS
+Ctrl --> RepS
+Ctrl ..> Err
+Sec ..> AccS : authenticate
+
+AccS --> AuthZ
+GrpS --> AuthZ
+ExpS --> AuthZ
+RevS --> AuthZ
+BalS --> AuthZ
+PayS --> AuthZ
+RepS --> AuthZ
+
+ExpS --> Alloc
+ExpS --> Exp
+RevS --> RevP
+RevS --> Exp
+BalS --> BalC
+PayS --> PayR
+PayS --> BalC
+GrpS --> MemR
+Alloc --> Money
+
+App ..> Ports : depends on
+Jpa ..|> Ports : implements
+BalQ ..|> Ports : implements
+Mail ..|> Ports : implements
+Rcpt ..|> Ports : implements
+Jpa --> PG
+Fly --> PG
+
+note bottom of Dom
+  No framework, UI, or persistence imports.
+  BigDecimal only for money (ArchUnit-enforced).
+end note
+@enduml

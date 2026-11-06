@@ -1,0 +1,67 @@
+@startuml seq-expense-submit-approve
+' SplitSmart - Expense submission and approval (shared core; presentation shown generically).
+' A: "Presentation" = REST controller; B [CONDITIONAL-B]: Swing presenter.
+' Source of truth: architecture.md 4.3-4.4, 6.3; contracts/application-services.md 4.
+title SplitSmart - Submit and Approve Expense
+
+skinparam shadowing false
+autonumber
+
+actor "Submitter" as Sub
+actor "Approver\n(manager)" as Apr
+participant "Presentation\n(REST controller | Swing presenter)" as UI
+participant "ExpenseService" as ExpS
+participant "ReviewService" as RevS
+participant "AuthorizationService" as AuthZ
+participant "AllocationCalculator\n(domain)" as Alloc
+participant "ReviewPolicy\n(domain)" as Pol
+participant "NotificationService" as Not
+database "Database" as DB
+
+== Submit (one transaction) ==
+Sub -> UI : expense form\n(amount, date, description, split,\npayer, participants[, percentages])
+UI -> ExpS : submitExpense(actor, cmd)
+ExpS -> AuthZ : requireActiveMember(actor, groupId)
+AuthZ -> DB : read membership
+alt not an active member
+  AuthZ --> UI : NOT_FOUND
+end
+ExpS -> DB : load group (currency, scale)\nand active member IDs
+ExpS -> ExpS : validate all fields\n(amount>0, scale, payer member,\nparticipants members, % rules)
+alt validation errors
+  ExpS --> UI : VALIDATION_FAILED [field codes]
+  UI --> Sub : show errors (nothing saved)
+end
+ExpS -> Alloc : allocate(amount, scale, method, participants)
+Alloc --> ExpS : shares (sum == amount, asserted)
+ExpS -> DB : insert expense(PENDING) + participants(shares)
+ExpS -> Not : expenseSubmitted(expense)
+Not -> DB : insert notification for each\nother ACTIVE member
+ExpS --> UI : ExpenseView(PENDING)
+UI --> Sub : "Submitted - pending review"\n(balances unchanged)
+
+== Approve (one transaction) ==
+Apr -> UI : approve(expenseId, version)
+UI -> RevS : approveExpense(actor, id, version)
+RevS -> DB : load expense
+RevS -> DB : SELECT group FOR UPDATE\n(lock order: group first - design.md 8.2)
+RevS -> AuthZ : requireActiveMember(actor, expense.groupId)
+RevS -> Pol : check(actor, expense, groupContext)
+alt not manager, or self-approval not allowed
+  Pol --> UI : FORBIDDEN_ROLE / SELF_APPROVAL_NOT_ALLOWED
+end
+RevS -> DB : UPDATE expense SET status=APPROVED, version=version+1\nWHERE id=? AND status=PENDING AND version=?
+alt 0 rows updated (already decided or edited)
+  RevS --> UI : EXPENSE_NOT_PENDING / CONCURRENT_MODIFICATION (409)
+end
+RevS -> DB : insert ReviewDecision(APPROVED, reviewer, decidedAt)
+RevS -> Not : expenseReviewed(expense)
+Not -> DB : notify submitter, payer, participants
+RevS --> UI : ExpenseView(APPROVED)
+UI --> Apr : approved
+
+note over DB
+  Balances are derived on read from APPROVED allocations and payments,
+  so the next balance query includes this expense automatically.
+end note
+@enduml

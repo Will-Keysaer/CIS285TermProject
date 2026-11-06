@@ -1,0 +1,18 @@
+@startuml expense-states
+' SplitSmart - Expense lifecycle (shared). Source of truth: data-model.md section 6.1.
+title SplitSmart - Expense State Machine
+
+hide empty description
+skinparam shadowing false
+
+[*] --> PENDING : submit\n[active member; validation passes]\n/ store shares; notify other members
+PENDING --> PENDING : edit\n[actor = submitter; version matches]\n/ recompute shares
+PENDING --> APPROVED : approve\n[ReviewPolicy allows; version matches]\n/ ReviewDecision; notify parties
+PENDING --> REJECTED : reject\n[ReviewPolicy allows; version matches]\n/ ReviewDecision; notify parties
+APPROVED --> [*]
+REJECTED --> [*]
+
+PENDING : excluded from balances
+APPROVED : included in balances (immutable)
+REJECTED : never in balances (immutable)
+@enduml

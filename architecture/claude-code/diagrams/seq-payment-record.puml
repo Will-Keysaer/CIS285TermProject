@@ -1,0 +1,46 @@
+@startuml seq-payment-record
+' SplitSmart - Record payment (shared core; presentation shown generically).
+' Source of truth: architecture.md 4.5, 6.2-6.3; contracts/application-services.md 5.
+title SplitSmart - Record Payment
+
+skinparam shadowing false
+autonumber
+
+actor "Payment sender" as Snd
+participant "Presentation\n(REST controller | Swing presenter)" as UI
+participant "PaymentService" as PayS
+participant "AuthorizationService" as AuthZ
+participant "PaymentRules\n(domain)" as Rules
+participant "PairwiseBalanceCalculator\n(domain)" as Bal
+database "Database" as DB
+
+Snd -> UI : record payment\n(recipient, amount, date, note,\nIdempotency-Key)
+UI -> PayS : recordPayment(actor, cmd)
+PayS -> AuthZ : requireActiveMember(actor, groupId)
+PayS -> Rules : validate(actor == sender, sender != recipient,\nrecipient active member, amount > 0,\namount scale <= currency scale, date <= today+1)
+alt invalid
+  Rules --> UI : PAYMENT_NOT_SENDER / PAYMENT_SELF /\nRECIPIENT_NOT_MEMBER / VALIDATION_FAILED
+end
+PayS -> DB : find by (group, recordedBy, idempotencyKey)
+alt key already used
+  PayS --> UI : original result (same body)\nor IDEMPOTENCY_KEY_REUSED (different body)
+end
+
+group one transaction
+  PayS -> DB : SELECT group FOR UPDATE\n(serializes payments & approvals per group)
+  PayS -> DB : aggregate directed sums for (sender, recipient):\nD(s->r), D(r->s), P(s->r), P(r->s)
+  PayS -> Bal : net(sender, recipient)
+  Bal --> PayS : N = outstanding owed by sender
+  alt N <= 0
+    PayS --> UI : NOTHING_OWED (422)
+  else amount > N
+    PayS --> UI : PAYMENT_EXCEEDS_OUTSTANDING (422, outstanding = N)
+  else possible duplicate (same s, r, amount, date in last 24h) and not confirmed
+    PayS --> UI : POSSIBLE_DUPLICATE_PAYMENT (409)
+  else valid
+    PayS -> DB : insert payment(sender, recipient, amount, paymentDate,\nrecordedBy = actor, recordedAt = clock.now())
+    PayS --> UI : PaymentView + updated balance (N - amount)
+  end
+end
+UI --> Snd : payment recorded; balance updated immediately
+@enduml
